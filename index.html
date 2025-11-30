@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fidelity Excel Editor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background-color: #f4f4f9; }
+        h1 { color: #333; }
+        .container { max-width: 1300px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; table-layout: auto; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 100px;}
+        th { background-color: #e9e9e9; font-weight: bold; position: sticky; top: 0; }
+        .controls { margin-bottom: 20px; padding: 15px; background-color: #f9f9f9; border-radius: 5px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+        .controls-group { border-right: 1px solid #ddd; padding-right: 15px; margin-right: 15px; }
+        .controls-group:last-child { border-right: none; }
+        .controls input, .controls select, .controls button { padding: 10px; font-size: 14px; border-radius: 4px; border: 1px solid #ccc; }
+        button { cursor: pointer; background-color: #007bff; color: white; border-color: #007bff; }
+        button:hover { background-color: #0056b3; }
+        #calc-display { font-weight: bold; color: green; margin-left: 15px; }
+        td[contenteditable="true"] { background-color: #fffacd; outline: none; }
+        td[contenteditable="true"]:focus { background-color: #f0f8ff; box-shadow: inset 0 0 0 2px #007bff; }
+        .sheet-selector { background-color: #eef; padding: 10px; border-radius: 5px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Fidelity Excel Editor (Shows Exact Sheet Structure)</h1>
+
+        <!-- File Control -->
+        <div class="controls">
+            <div class="controls-group">
+                <input type="file" id="file-input" accept=".xlsx, .xls">
+            </div>
+        </div>
+        
+        <!-- Sheet Selector -->
+        <div class="sheet-selector" id="sheet-selector" style="display:none;">
+            <label for="sheet-select"><strong>Select Worksheet:</strong></label>
+            <select id="sheet-select"></select>
+        </div>
+
+        <!-- Data Controls -->
+        <div class="controls" id="data-controls" style="display:none;">
+            <div class="controls-group">
+                <button id="add-row-btn">Add Row</button>
+                <button id="add-column-btn">Add Column</button>
+            </div>
+            <div class="controls-group">
+                <input type="text" id="search-input" placeholder="Search in sheet...">
+            </div>
+        </div>
+
+        <!-- Calculation Controls -->
+        <div class="controls" id="calc-controls" style="display:none;">
+            <div class="controls-group">
+                <label for="column-select"><strong>Column:</strong></label>
+                <select id="column-select">
+                    <option value="">-- Select Column --</option>
+                </select>
+                <button id="calculate-selected-sum-btn">Sum</button>
+                <button id="calculate-selected-avg-btn">Average</button>
+            </div>
+            <div class="controls-group">
+                <label for="row-select"><strong>Row:</strong></label>
+                <select id="row-select">
+                    <option value="">-- Select Row --</option>
+                </select>
+                <button id="calculate-selected-row-sum-btn">Sum Row</button>
+            </div>
+            <span id="calc-display"></span>
+        </div>
+
+        <!-- Save Control -->
+        <div class="controls" id="save-controls" style="display:none;">
+            <button id="save-excel-btn" style="background-color: #28a745; border-color: #28a745;">Save All Sheets as Excel</button>
+        </div>
+
+        <!-- Data Table -->
+        <table id="data-table">
+            <thead></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <script>
+        let workbookData = {}; // This will hold 2D arrays for each sheet
+        let currentSheetName = '';
+        let numCols = 0;
+
+        // DOM Elements
+        const fileInput = document.getElementById('file-input');
+        const sheetSelectorDiv = document.getElementById('sheet-selector');
+        const sheetSelect = document.getElementById('sheet-select');
+        const dataControlsDiv = document.getElementById('data-controls');
+        const calcControlsDiv = document.getElementById('calc-controls');
+        const saveControlsDiv = document.getElementById('save-controls');
+        const searchInput = document.getElementById('search-input');
+        const addRowBtn = document.getElementById('add-row-btn');
+        const addColumnBtn = document.getElementById('add-column-btn');
+        const columnSelect = document.getElementById('column-select');
+        const calculateSelectedSumBtn = document.getElementById('calculate-selected-sum-btn');
+        const calculateSelectedAvgBtn = document.getElementById('calculate-selected-avg-btn');
+        const rowSelect = document.getElementById('row-select');
+        const calculateSelectedRowSumBtn = document.getElementById('calculate-selected-row-sum-btn');
+        const calcDisplay = document.getElementById('calc-display');
+        const saveExcelBtn = document.getElementById('save-excel-btn');
+        const dataTable = document.getElementById('data-table');
+        const tableBody = dataTable.querySelector('tbody');
+
+        // --- EVENT LISTENERS ---
+        fileInput.addEventListener('change', handleFileUpload);
+        sheetSelect.addEventListener('change', handleSheetChange);
+        searchInput.addEventListener('input', handleSearch);
+        addRowBtn.addEventListener('click', addRow);
+        addColumnBtn.addEventListener('click', addColumn);
+        calculateSelectedSumBtn.addEventListener('click', () => calculateColumnStats('sum'));
+        calculateSelectedAvgBtn.addEventListener('click', () => calculateColumnStats('average'));
+        calculateSelectedRowSumBtn.addEventListener('click', calculateRowSum);
+        saveExcelBtn.addEventListener('click', saveAllSheetsAsExcel);
+
+        // Event delegation for cell editing
+        tableBody.addEventListener('focusout', function(e) {
+            if (e.target.contentEditable === 'true') {
+                const rowIndex = e.target.dataset.row;
+                const colIndex = e.target.dataset.col;
+                const newValue = e.target.textContent;
+                
+                if (workbookData[currentSheetName][rowIndex][colIndex] !== newValue) {
+                    workbookData[currentSheetName][rowIndex][colIndex] = newValue;
+                    console.log(`Updated [${currentSheetName}][R${rowIndex}][C${colIndex}] to "${newValue}"`);
+                }
+            }
+        });
+        
+        tableBody.addEventListener('keydown', function(e) {
+            if (e.target.contentEditable === 'true' && e.key === 'Enter') {
+                e.preventDefault();
+                e.target.blur();
+            }
+        });
+
+        // --- CORE FUNCTIONS ---
+
+        function handleFileUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                
+                workbookData = {};
+                workbook.SheetNames.forEach(sheetName => {
+                    const worksheet = workbook.Sheets[sheetName];
+                    // Read sheet as a 2D array (array of arrays) to preserve structure
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+                    workbookData[sheetName] = jsonData;
+                });
+
+                populateSheetSelect(workbook.SheetNames);
+                
+                if (workbook.SheetNames.length > 0) {
+                    currentSheetName = workbook.SheetNames[0];
+                    sheetSelect.value = currentSheetName;
+                    displaySheet(currentSheetName);
+                }
+
+                sheetSelectorDiv.style.display = 'block';
+                dataControlsDiv.style.display = 'flex';
+                calcControlsDiv.style.display = 'flex';
+                saveControlsDiv.style.display = 'flex';
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function handleSheetChange(e) {
+            currentSheetName = e.target.value;
+            displaySheet(currentSheetName);
+        }
+
+        function displaySheet(sheetName) {
+            const currentSheetData = workbookData[sheetName];
+            // The number of columns is determined by the longest row in the sheet
+            numCols = Math.max(...currentSheetData.map(row => row.length), 0);
+            
+            renderTable(currentSheetData);
+            populateColumnSelect();
+            populateRowSelect(currentSheetData.length);
+            calcDisplay.textContent = '';
+        }
+        
+        function populateSheetSelect(sheetNames) {
+            sheetSelect.innerHTML = '';
+            sheetNames.forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                sheetSelect.appendChild(option);
+            });
+        }
+
+        function populateColumnSelect() {
+            columnSelect.innerHTML = '<option value="">-- Select Column --</option>';
+            for (let i = 0; i < numCols; i++) {
+                const colLetter = XLSX.utils.encode_col(i); // Converts 0 to 'A', 1 to 'B', etc.
+                const option = document.createElement('option');
+                option.value = i;
+                option.textContent = `Column ${colLetter}`;
+                columnSelect.appendChild(option);
+            }
+        }
+        
+        function populateRowSelect(numRows) {
+            rowSelect.innerHTML = '<option value="">-- Select Row --</option>';
+            for (let i = 0; i < numRows; i++) {
+                const option = document.createElement('option');
+                option.value = i;
+                option.textContent = `Row ${i + 1}`;
+                rowSelect.appendChild(option);
+            }
+        }
+
+        function renderTable(data) {
+            const tableHead = dataTable.querySelector('thead');
+            const tableBody = dataTable.querySelector('tbody');
+            tableHead.innerHTML = '';
+            tableBody.innerHTML = '';
+
+            if (data.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="100%">Sheet is empty</td></tr>';
+                return;
+            }
+
+            // Render header row (using the first row of the data)
+            const headerRow = document.createElement('tr');
+            for (let i = 0; i < numCols; i++) {
+                const th = document.createElement('th');
+                th.textContent = data[0][i] || ''; // Use first row for headers, empty if cell is undefined
+                headerRow.appendChild(th);
+            }
+            tableHead.appendChild(headerRow);
+
+            // Render data rows (starting from the second row)
+            for (let i = 1; i < data.length; i++) {
+                const tr = document.createElement('tr');
+                for (let j = 0; j < numCols; j++) {
+                    const td = document.createElement('td');
+                    td.textContent = data[i][j] || '';
+                    td.contentEditable = 'true';
+                    td.dataset.row = i;
+                    td.dataset.col = j;
+                    tr.appendChild(td);
+                }
+                tableBody.appendChild(tr);
+            }
+        }
+        
+        function handleSearch(e) {
+            const searchTerm = e.target.value.toLowerCase();
+            const rows = tableBody.querySelectorAll('tr');
+            rows.forEach(row => {
+                const textContent = row.textContent.toLowerCase();
+                row.style.display = textContent.includes(searchTerm) ? '' : 'none';
+            });
+        }
+
+        function addRow() {
+            const newRow = new Array(numCols).fill("");
+            workbookData[currentSheetName].push(newRow);
+            displaySheet(currentSheetName);
+        }
+
+        function addColumn() {
+            workbookData[currentSheetName].forEach(row => {
+                row.push(""); // Add an empty cell to each row
+            });
+            numCols++; // Increment the column count
+            displaySheet(currentSheetName);
+        }
+        
+        function calculateColumnStats(type) {
+            const selectedColIndex = parseInt(columnSelect.value);
+            if (isNaN(selectedColIndex)) { alert('Please select a column first.'); return; }
+
+            const currentSheetData = workbookData[currentSheetName];
+            let sum = 0;
+            let count = 0;
+
+            // Start from row 1 to skip headers
+            for (let i = 1; i < currentSheetData.length; i++) {
+                const value = parseFloat(currentSheetData[i][selectedColIndex]);
+                if (!isNaN(value)) {
+                    sum += value;
+                    count++;
+                }
+            }
+
+            const colLetter = XLSX.utils.encode_col(selectedColIndex);
+            if (type === 'sum') {
+                calcDisplay.textContent = `Sum of Column ${colLetter}: ${sum.toFixed(2)}`;
+            } else if (type === 'average') {
+                const average = count > 0 ? sum / count : 0;
+                calcDisplay.textContent = `Average of Column ${colLetter}: ${average.toFixed(2)}`;
+            }
+        }
+
+        function calculateRowSum() {
+            const selectedRowIndex = parseInt(rowSelect.value);
+            if (isNaN(selectedRowIndex)) { alert('Please select a row first.'); return; }
+            
+            const row = workbookData[currentSheetName][selectedRowIndex];
+            let sum = 0;
+            row.forEach(cell => {
+                const value = parseFloat(cell);
+                if (!isNaN(value)) {
+                    sum += value;
+                }
+            });
+            
+            calcDisplay.textContent = `Sum of Row ${selectedRowIndex + 1}: ${sum.toFixed(2)}`;
+        }
+
+        function saveAllSheetsAsExcel() {
+            const newWorkbook = XLSX.utils.book_new();
+            Object.keys(workbookData).forEach(sheetName => {
+                const sheetData = workbookData[sheetName];
+                const newWorksheet = XLSX.utils.aoa_to_sheet(sheetData); // Use aoa_to_sheet for 2D arrays
+                XLSX.utils.book_append_sheet(newWorkbook, newWorksheet, sheetName);
+            });
+            XLSX.writeFile(newWorkbook, "edited_all_sheets.xlsx");
+        }
+    </script>
+</body>
+</html>

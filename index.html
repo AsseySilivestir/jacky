@@ -3,40 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Jacky,s  tool  A simple software  to  edit  excel  </title>
+    <title>Excel Editor with Product & Sum Column</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         body { font-family: Arial, sans-serif; padding: 20px; background-color: #f4f4f9; }
         h1 { color: #333; }
-        .container { max-width: 1300px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .container { max-width: 1400px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
         table { border-collapse: collapse; width: 100%; margin-top: 20px; table-layout: auto; }
         th, td { border: 1px solid #ccc; padding: 8px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 100px;}
-        
-        /* Style for all headers */
         th { background-color: #e9e9e9; font-weight: bold; position: sticky; top: 0; z-index: 10; }
-        
-        /* Specific style for the top-left corner cell */
         .corner-header { background-color: #d1d1d1; }
-        
-        /* Style for row number headers (the first <th> in each row) */
         .row-header { background-color: #f2f2f2; text-align: center; position: sticky; left: 0; z-index: 5; }
-        
         .controls { margin-bottom: 20px; padding: 15px; background-color: #f9f9f9; border-radius: 5px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
         .controls-group { border-right: 1px solid #ddd; padding-right: 15px; margin-right: 15px; }
         .controls-group:last-child { border-right: none; }
         .controls input, .controls select, .controls button { padding: 10px; font-size: 14px; border-radius: 4px; border: 1px solid #ccc; }
         button { cursor: pointer; background-color: #007bff; color: white; border-color: #007bff; }
         button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #aaa; cursor: not-allowed; }
         #calc-display { font-weight: bold; color: green; margin-left: 15px; }
         td[contenteditable="true"] { background-color: #fffacd; outline: none; }
         td[contenteditable="true"]:focus { background-color: #f0f8ff; box-shadow: inset 0 0 0 2px #007bff; }
         .sheet-selector { background-color: #eef; padding: 10px; border-radius: 5px; margin-bottom: 20px; }
+        .checkbox-group { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; max-height: 100px; overflow-y: auto; padding: 5px; border: 1px solid #ddd; border-radius: 4px;}
+        .checkbox-group label { display: flex; align-items: center; gap: 5px; font-size: 14px;}
     </style>
 </head>
 <body>
 
     <div class="container">
-        <h1>Exel editor </h1>
+        <h1>Excel Editor with Product & Sum Column</h1>
 
         <!-- File Control -->
         <div class="controls">
@@ -64,6 +60,7 @@
 
         <!-- Calculation Controls -->
         <div class="controls" id="calc-controls" style="display:none;">
+            <!-- Full Column/Row Calculations -->
             <div class="controls-group">
                 <label for="column-select"><strong>Column:</strong></label>
                 <select id="column-select">
@@ -79,6 +76,30 @@
                 </select>
                 <button id="calculate-selected-row-sum-btn">Sum Row</button>
             </div>
+            
+            <!-- Arbitrary Selection Calculation -->
+            <div class="controls-group">
+                <label><strong>Arbitrary Selection:</strong></label>
+                <select id="arbitrary-row-select">
+                    <option value="">-- Select Row --</option>
+                </select>
+                <div id="column-checkboxes" class="checkbox-group">
+                    <!-- Checkboxes will be populated here by JS -->
+                </div>
+                <button id="calculate-arbitrary-sum-btn" disabled>Sum Selected</button>
+                <button id="calculate-arbitrary-avg-btn" disabled>Average Selected</button>
+                <button id="calculate-arbitrary-product-btn" disabled>Product Selected</button> <!-- NEW -->
+            </div>
+
+            <!-- NEW: Sum Column for Selection -->
+            <div class="controls-group">
+                <label><strong>Column Operation:</strong></label>
+                <div id="column-checkboxes-for-new-col" class="checkbox-group">
+                    <!-- Checkboxes will be populated here by JS -->
+                </div>
+                <button id="add-sum-column-btn" disabled>Add Sum Column</button> <!-- NEW -->
+            </div>
+
             <span id="calc-display"></span>
         </div>
 
@@ -114,6 +135,13 @@
         const calculateSelectedAvgBtn = document.getElementById('calculate-selected-avg-btn');
         const rowSelect = document.getElementById('row-select');
         const calculateSelectedRowSumBtn = document.getElementById('calculate-selected-row-sum-btn');
+        const arbitraryRowSelect = document.getElementById('arbitrary-row-select');
+        const columnCheckboxesDiv = document.getElementById('column-checkboxes');
+        const columnCheckboxesForNewColDiv = document.getElementById('column-checkboxes-for-new-col'); // NEW
+        const calculateArbitrarySumBtn = document.getElementById('calculate-arbitrary-sum-btn');
+        const calculateArbitraryAvgBtn = document.getElementById('calculate-arbitrary-avg-btn');
+        const calculateArbitraryProductBtn = document.getElementById('calculate-arbitrary-product-btn'); // NEW
+        const addSumColumnBtn = document.getElementById('add-sum-column-btn'); // NEW
         const calcDisplay = document.getElementById('calc-display');
         const saveExcelBtn = document.getElementById('save-excel-btn');
         const dataTable = document.getElementById('data-table');
@@ -129,7 +157,15 @@
         calculateSelectedSumBtn.addEventListener('click', () => calculateColumnStats('sum'));
         calculateSelectedAvgBtn.addEventListener('click', () => calculateColumnStats('average'));
         calculateSelectedRowSumBtn.addEventListener('click', calculateRowSum);
+        calculateArbitrarySumBtn.addEventListener('click', () => calculateArbitrarySelection('sum'));
+        calculateArbitraryAvgBtn.addEventListener('click', () => calculateArbitrarySelection('average'));
+        calculateArbitraryProductBtn.addEventListener('click', () => calculateArbitrarySelection('product')); // NEW
+        addSumColumnBtn.addEventListener('click', addSumColumnForSelection); // NEW
         saveExcelBtn.addEventListener('click', saveAllSheetsAsExcel);
+
+        arbitraryRowSelect.addEventListener('change', handleArbitrarySelectionChange);
+        columnCheckboxesDiv.addEventListener('change', handleArbitrarySelectionChange);
+        columnCheckboxesForNewColDiv.addEventListener('change', handleNewColSelectionChange); // NEW
 
         // Event delegation for cell editing
         tableBody.addEventListener('focusout', function(e) {
@@ -195,8 +231,8 @@
             numCols = Math.max(...currentSheetData.map(row => row.length), 0);
             
             renderTable(currentSheetData);
-            populateColumnSelect();
-            populateRowSelect(currentSheetData.length);
+            populateAllSelects(currentSheetData.length);
+            populateColumnCheckboxes();
             calcDisplay.textContent = '';
         }
         
@@ -210,25 +246,63 @@
             });
         }
 
-        function populateColumnSelect() {
-            columnSelect.innerHTML = '<option value="">-- Select Column --</option>';
+        function populateAllSelects(numRows) {
+            const colDropdowns = [columnSelect];
+            const colOptions = '<option value="">-- Select Column --</option>';
+            const colLetters = [];
             for (let i = 0; i < numCols; i++) {
                 const colLetter = XLSX.utils.encode_col(i);
-                const option = document.createElement('option');
-                option.value = i;
-                option.textContent = `Column ${colLetter}`;
-                columnSelect.appendChild(option);
+                colLetters.push(`<option value="${i}">${colLetter}</option>`);
             }
+            colDropdowns.forEach(dropdown => {
+                dropdown.innerHTML = colOptions + colLetters.join('');
+            });
+
+            const rowDropdowns = [rowSelect, arbitraryRowSelect];
+            const rowOptions = '<option value="">-- Select Row --</option>';
+            const rowNumbers = [];
+            for (let i = 0; i < numRows; i++) {
+                rowNumbers.push(`<option value="${i}">Row ${i + 1}</option>`);
+            }
+            rowDropdowns.forEach(dropdown => {
+                dropdown.innerHTML = rowOptions + rowNumbers.join('');
+            });
         }
         
-        function populateRowSelect(numRows) {
-            rowSelect.innerHTML = '<option value="">-- Select Row --</option>';
-            for (let i = 0; i < numRows; i++) {
-                const option = document.createElement('option');
-                option.value = i;
-                option.textContent = `Row ${i + 1}`;
-                rowSelect.appendChild(option);
-            }
+        function populateColumnCheckboxes() {
+            [columnCheckboxesDiv, columnCheckboxesForNewColDiv].forEach(div => {
+                div.innerHTML = '';
+                for (let i = 0; i < numCols; i++) {
+                    const colLetter = XLSX.utils.encode_col(i);
+                    const label = document.createElement('label');
+                    const input = document.createElement('input');
+                    input.type = 'checkbox';
+                    input.value = i;
+                    input.name = div.id === 'column-checkboxes' ? 'col-select' : 'col-select-new';
+                    label.appendChild(input);
+                    label.appendChild(document.createTextNode(colLetter));
+                    div.appendChild(label);
+                }
+            });
+            // Reset button states
+            handleArbitrarySelectionChange();
+            handleNewColSelectionChange();
+        }
+
+        function handleArbitrarySelectionChange() {
+            const isRowSelected = arbitraryRowSelect.value !== "";
+            const isAnyColChecked = document.querySelectorAll('input[name="col-select"]:checked').length > 0;
+            const isEnabled = isRowSelected && isAnyColChecked;
+            
+            calculateArbitrarySumBtn.disabled = !isEnabled;
+            calculateArbitraryAvgBtn.disabled = !isEnabled;
+            calculateArbitraryProductBtn.disabled = !isEnabled;
+        }
+
+        // NEW: Function to enable/disable the "Add Sum Column" button
+        function handleNewColSelectionChange() {
+            const isAnyColChecked = document.querySelectorAll('input[name="col-select-new"]:checked').length > 0;
+            addSumColumnBtn.disabled = !isAnyColChecked;
         }
 
         function renderTable(data) {
@@ -240,13 +314,10 @@
                 return;
             }
 
-            // --- NEW: Create Column Letter Header Row ---
             const colHeaderRow = document.createElement('tr');
-            // Add the empty corner cell
             const cornerHeader = document.createElement('th');
             cornerHeader.className = 'corner-header';
             colHeaderRow.appendChild(cornerHeader);
-            // Add the column letters (A, B, C...)
             for (let i = 0; i < numCols; i++) {
                 const th = document.createElement('th');
                 th.textContent = XLSX.utils.encode_col(i);
@@ -254,17 +325,13 @@
             }
             tableHead.appendChild(colHeaderRow);
 
-            // --- Create Data Rows with Row Number Headers ---
             for (let i = 0; i < data.length; i++) {
                 const tr = document.createElement('tr');
-                
-                // Add the row number header (1, 2, 3...)
                 const rowHeader = document.createElement('th');
                 rowHeader.className = 'row-header';
                 rowHeader.textContent = i + 1;
                 tr.appendChild(rowHeader);
 
-                // Add the data cells
                 for (let j = 0; j < numCols; j++) {
                     const td = document.createElement('td');
                     td.textContent = data[i][j] || '';
@@ -281,7 +348,6 @@
             const searchTerm = e.target.value.toLowerCase();
             const rows = tableBody.querySelectorAll('tr');
             rows.forEach(row => {
-                // We only want to search within the data cells, not the row header
                 const textContent = Array.from(row.querySelectorAll('td')).map(td => td.textContent).join(' ').toLowerCase();
                 row.style.display = textContent.includes(searchTerm) ? '' : 'none';
             });
@@ -340,6 +406,79 @@
             });
             
             calcDisplay.textContent = `Sum of Row ${selectedRowIndex + 1}: ${sum.toFixed(2)}`;
+        }
+
+        function calculateArbitrarySelection(operation) {
+            const rowIndex = parseInt(arbitraryRowSelect.value);
+            const checkedBoxes = document.querySelectorAll('input[name="col-select"]:checked');
+            
+            if (isNaN(rowIndex) || checkedBoxes.length === 0) {
+                alert('Please select a row and at least one column.');
+                return;
+            }
+
+            const row = workbookData[currentSheetName][rowIndex];
+            let result = 0;
+            let count = 0;
+            const selectedCols = [];
+
+            if (operation === 'product') {
+                result = 1; // Start with 1 for multiplication
+            }
+
+            checkedBoxes.forEach(checkbox => {
+                const colIndex = parseInt(checkbox.value);
+                selectedCols.push(XLSX.utils.encode_col(colIndex));
+                const value = parseFloat(row[colIndex]);
+                if (!isNaN(value)) {
+                    if (operation === 'product') {
+                        result *= value;
+                    } else { // sum or average
+                        result += value;
+                    }
+                    count++;
+                }
+            });
+
+            if (operation === 'average') {
+                result = count > 0 ? result / count : 0;
+            }
+            
+            const opText = operation.charAt(0).toUpperCase() + operation.slice(1);
+            calcDisplay.textContent = `${opText} of Row ${rowIndex + 1} (${selectedCols.join(', ')}): ${result.toFixed(2)}`;
+        }
+
+        // NEW: Function to add a new column with the sum of selected columns for each row
+        function addSumColumnForSelection() {
+            const checkedBoxes = document.querySelectorAll('input[name="col-select-new"]:checked');
+            if (checkedBoxes.length === 0) {
+                alert('Please select at least one column to sum.');
+                return;
+            }
+
+            const colIndices = Array.from(checkedBoxes).map(cb => parseInt(cb.value));
+            const colLetters = colIndices.map(i => XLSX.utils.encode_col(i));
+            const newColHeader = `Sum(${colLetters.join(', ')})`;
+
+            const currentSheetData = workbookData[currentSheetName];
+            currentSheetData.forEach(row => {
+                let rowSum = 0;
+                colIndices.forEach(colIndex => {
+                    const value = parseFloat(row[colIndex]);
+                    if (!isNaN(value)) {
+                        rowSum += value;
+                    }
+                });
+                row.push(rowSum.toFixed(2));
+            });
+            
+            // Add header for the new column if it exists
+            if (currentSheetData.length > 0) {
+                currentSheetData[0][numCols] = newColHeader;
+            }
+
+            numCols++;
+            displaySheet(currentSheetName); // Re-render to show the new column
         }
 
         function saveAllSheetsAsExcel() {
